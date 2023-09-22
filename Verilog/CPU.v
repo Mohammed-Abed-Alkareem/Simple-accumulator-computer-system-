@@ -1,0 +1,333 @@
+module CPU (
+	input signed [15:0] Mem_Data ,
+	input clk ,
+	output reg [6:0] Mem_Address ,
+	output reg rd , wr,// Declaring the read and write operations
+	output reg signed[15:0] Data_Out ,
+	output reg fZ,
+	output reg fO,
+	output reg fN,
+	output reg fC // Declaring the flags
+	);
+// The RAM's outputs are the CPU's inputs
+// The RAM's inputs are the CPU's outputs
+
+reg signed [15:0] AC; // Store operand in it
+reg [6:0] PC;  // Store the address for the next instruction
+reg [15:0] IR; // Store instruction in it
+reg [6:0] MAR; // Store the address to be sent to the RAM
+reg signed [15:0] MBR; // Buffer to get and send to the RAM
+reg [4:0] state; // Creating the state machine
+
+
+// Setting the operands
+parameter Load = 1, Store = 2, ADD = 3, Sub = 4, Mul = 5, Div = 6, Branch = 7, BRZ = 8;
+
+
+initial begin // initializing parameters
+PC = 0;
+AC=0; 
+state = 0; 
+fZ = 0;
+fO = 0;
+fN = 0;
+fC = 0;
+end
+
+reg [15:0] tempResult;
+
+always @(posedge clk) 
+    begin
+	case(state)
+
+        // Sending the address to the MAR
+		0: begin 
+			MAR <= PC ;
+			state = 1 ;
+		   end	
+		
+        // Sending the address to the memory with the read operation
+		1: begin
+		    Mem_Address<= MAR[6:0];
+		    rd = 1 ;
+		    wr = 0 ;
+			PC <= PC + 1 ; // Incrementing the PC
+			state = 2;	
+		   end
+		
+        //  The program needs another clock tick to retrieve the data from the memory
+		2: state = 3; 
+        
+        // Retrieving the data from the memory and sending it to the MBR
+        3: begin 
+		    MBR<= Mem_Data ;
+		    state = 4;
+		   end
+		
+        // Sending the data in the MBR to the IR
+		4: begin 
+		    IR = MBR;
+		    state = 5;
+		   end
+		
+        // Sending the address of the operand to the MAR
+		5: begin
+			if(IR[15:12]!=Store && IR[15:12]!=Branch && IR[15:12]!=BRZ && IR[11]!=0 )
+                begin
+                 MAR <= IR[6:0] ;
+                 state = 6;
+                end
+		    else 
+		        state = 8;	
+		   end
+		
+        // Sending the address to the memory with the read operation 
+		6: begin
+		    Mem_Address<= MAR;
+		    rd = 1;
+		    wr = 0;
+		    state = 7;
+		   end
+		
+        // The program needs another clock tick to retrieve the data from the memory
+		7: state = 8;
+		
+        // If the operation is store send the data in the AC to the MBR and address to the MAR
+        // Else, send the data stored to MBR
+		8: begin
+            if(IR[15:12] == Store)
+                begin 
+                 MBR<= AC;
+                 MAR <= IR[6:0];
+                end
+		
+		    else if(IR[15:12]!=Store && IR[15:12]!=Branch && IR[15:12]!=BRZ)
+		        MBR<= Mem_Data ;
+		    state = 9;
+		   end
+			
+		9: begin
+            state = 0; // Resetting the state
+
+            // LOAD
+            if(IR[15:12] == Load)
+                begin
+                 AC <= MBR;
+                end
+            
+            // STORE
+            else if(IR[15:12] == Store)
+                begin
+                 Mem_Address<= MAR[6:0];
+                 Data_Out <= AC;
+                 rd= 0 ; 
+                 wr = 1;
+                end
+            
+            // ADDITION
+            else if(IR[15:12] == ADD)
+                begin
+
+                if(IR[11]==1)
+                    begin
+
+                     if(MBR> 0 && AC>0)  // Overflow checker
+                        begin
+                         {fC , AC} <= AC + MBR; // Find the sum and the carry
+                         if (AC <= 0)
+                             fO = 1 ;
+                        end
+
+                    else if(MBR < 0 && AC < 0)
+                        begin 
+                        {fC , AC} <= AC + MBR; // Find the sum and the carry
+                        if (AC>=0)
+                            fO = 1 ;
+                        end
+                
+                    else 
+                        {fC , AC} <= AC + MBR; // Find the sum and the carry
+                    
+                    if(AC == 0) // Zero flag checker
+                        fZ = 1;
+                    else 
+						fZ=0;
+                    if(AC < 0) // Negative flag
+                        fN = 1;
+                    end
+            
+                else
+                    begin
+                        if(IR[10:0]> 0 && AC>0)
+                            begin  // Overflow checker
+                                {fC , AC} <= AC + IR[10:0]; // Find the sum and the carry
+                                if (AC<=0)
+                                    fO = 1 ;
+                            end
+            
+                        else if(IR[10:0]< 0 && AC<0)
+                            begin 
+                                {fC , AC} <= AC + IR[10:0]; // Find the sum and the carry
+                                if (AC>=0)
+                                    fO = 1 ;
+                            end
+            
+                        else 
+                            {fC , AC} <= AC + IR[10:0]; // Find the sum and the carry
+            
+    
+                        if(AC == 0) // Zero flag checker
+                        fZ = 1;
+                        else 
+						fZ=0;
+                    
+                        if(AC < 0) // Negative flag
+                        fN = 1;  
+                        else 
+								fN=0;   
+                    end
+                end
+            
+            else if(IR[15:12] == Sub)
+                begin
+                    if(IR[11] == 1)
+                        begin
+                            if(MBR< 0 && AC>0)
+                                begin  // Overflow checker
+                                    {fC , AC} <= AC - MBR;// Find the sum and the carry
+                                    if (AC <= 0)
+                                        fO = 1;
+                                end
+                    
+                            else if(MBR> 0 && AC<0)
+                                begin 
+                                    {fC , AC} <= AC - MBR; // Find the sum and the carry
+                                    if (AC >= 0)
+                                        fO = 1;
+                                end
+                            else 
+                                {fC , AC} <= AC - MBR;// Find the sum and the carry
+                    
+                
+                            if(AC == 0) // Zero flag checker
+                            fZ = 1;
+                            else 
+								fZ=0;
+                        
+                            if(AC < 0)// Negative flag
+                            fN = 1;
+                            else 
+								fN=0;
+                        end
+                    else 
+                        begin
+                            if(IR[10:0] < 0 && AC > 0)
+                                begin  //overflow checker
+                                    {fC , AC} <= AC - IR[10:0];// Find the sum and the carry
+                                    if (AC <= 0)
+                                        fO = 1; 
+                                end
+                            
+                            else if(IR[10:0] > 0 && AC < 0)
+                                begin 
+                                    {fC , AC} <= AC - IR[10:0]; // Find the sum and the carry
+                                    if (AC >= 0)
+                                        fO = 1;
+                                end
+                            else 
+                                {fC , AC} <= AC - IR[10:0]; // Find the sum and the carry
+                        
+                            if(AC == 0) // Zero flag checker
+                                fZ = 1;
+                            else 
+								fZ=0;
+                            if(AC < 0) // Negative flag
+                                fN = 1;
+                            else 
+								fN=0;
+                        end
+                end
+            else if(IR[15:12] == Mul)
+                begin
+                    if(IR[11] == 1)
+                        begin
+                            {tempResult , AC} <= AC * MBR;	// To check the overflow 
+
+                            if({tempResult , AC} != AC)
+                                fO = 1;
+
+                            if(AC == 0) //zero flag checker
+                                fZ = 1;
+                            else 
+								fZ=0;
+
+                            if(AC < 0)//negative flag
+                                fN = 1;
+                            else 
+								fN=0;    
+                        end
+                    else 
+                        begin
+                            {tempResult , AC} <= AC *  IR[10:0];	// To check the overflow 
+                            
+                            if({tempResult , AC} != AC)
+                                fO = 1;
+                            
+                            if(AC == 0) // Zero flag checker
+                                fZ = 1;
+                            else 
+								fZ=0;
+                            
+                            if(AC < 0) // Negative flag
+                                fN = 1;
+                            else 
+								fN=0;
+                        end
+                end
+                
+            else if(IR[15:12] == Div)
+                begin
+                    if(IR[11] == 1)
+                        begin
+                            AC <= AC / MBR;
+                            if(AC == 0)
+                                fZ = 1;
+                             else 
+								fZ=0;
+                             if(AC < 0) // Negative flag
+                                fN = 1;
+                            else 
+								fN=0;    
+                        end
+                    else 
+                        begin
+                            AC <= AC / IR[10:0];
+                            
+                            if(AC == 0) // Zero flag
+                                fZ = 1;
+                             else 
+								fZ=0;
+                            
+                            if(AC < 0) // Negative flag
+                                fN = 1;
+                            else 
+								fN=0;    
+                        end
+                end
+            
+            else if(IR[15:12] == Branch)
+                begin
+                    PC <= IR[6:0];
+                end
+                
+            else if(IR[15:12] == BRZ)
+                begin
+                    if(fZ == 1)
+                        PC <= IR[6:0];
+                    
+                end     
+           end
+    endcase
+	end
+endmodule	
+	
