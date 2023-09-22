@@ -15,6 +15,6 @@ implementation of an accumulator computer system with a 16-bit cell memory. The 
 
 # Authors
 
-Mohammed Abed Alkareem
-Mohammad Fareed
-Ahmad Hamdan
+### Mohammed Abed Alkareem
+### Mohammad Fareed
+### Ahmad Hamdan
